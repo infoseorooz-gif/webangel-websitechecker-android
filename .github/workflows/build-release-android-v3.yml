@@ -1,0 +1,172 @@
+name: Build Signed Android Release V3
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android API 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Set up Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Restore verified signing bundle
+        env:
+          SIGNING_BUNDLE_B64: ${{ secrets.ANDROID_SIGNING_BUNDLE_B64 }}
+        run: |
+          test -n "$SIGNING_BUNDLE_B64" || (echo "Missing ANDROID_SIGNING_BUNDLE_B64" && exit 1)
+
+          python3 - <<'PY'
+          import os, json, base64
+
+          bundle = json.loads(
+              base64.b64decode(os.environ["SIGNING_BUNDLE_B64"]).decode("utf-8")
+          )
+
+          keystore = base64.b64decode(bundle["keystore_base64"])
+          path = os.path.join(os.environ["RUNNER_TEMP"], "webangel-upload-key.jks")
+          with open(path, "wb") as f:
+              f.write(keystore)
+
+          vals = {
+              "ANDROID_KEYSTORE_FILE": path,
+              "ANDROID_KEYSTORE_PASSWORD": bundle["store_password"],
+              "ANDROID_KEY_ALIAS": bundle["key_alias"],
+              "ANDROID_KEY_PASSWORD": bundle["key_password"],
+          }
+
+          env_path = os.environ["GITHUB_ENV"]
+          with open(env_path, "a", encoding="utf-8") as f:
+              for k, v in vals.items():
+                  print(f"::add-mask::{v}")
+                  f.write(f"{k}={v}\n")
+          PY
+
+          chmod 600 "$RUNNER_TEMP/webangel-upload-key.jks"
+
+      - name: Verify upload keystore
+        run: |
+          keytool -list \
+            -keystore "$ANDROID_KEYSTORE_FILE" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS"
+
+      - name: Configure signed Release build
+        run: |
+          cat > app/build.gradle <<'GRADLE'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'marketing.webangel.websitechecker'
+              compileSdk 36
+
+              defaultConfig {
+                  applicationId 'marketing.webangel.websitechecker'
+                  minSdk 26
+                  targetSdk 36
+                  versionCode 1
+                  versionName '1.0.0'
+              }
+
+              signingConfigs {
+                  release {
+                      storeFile file(System.getenv('ANDROID_KEYSTORE_FILE'))
+                      storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                      keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                      keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+                  }
+              }
+
+              buildTypes {
+                  debug {
+                      applicationIdSuffix '.debug'
+                      versionNameSuffix '-debug'
+                  }
+                  release {
+                      signingConfig signingConfigs.release
+                      minifyEnabled false
+                      shrinkResources false
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          GRADLE
+
+      - name: Build signed Release APK and AAB
+        run: |
+          gradle clean :app:assembleRelease :app:bundleRelease --stacktrace
+
+      - name: Collect signed outputs
+        run: |
+          mkdir -p release
+
+          APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+          AAB="$(find app/build/outputs/bundle/release -maxdepth 1 -type f -name '*.aab' | head -n 1)"
+
+          test -f "$APK" || (echo "Signed Release APK not found" && exit 1)
+          test -f "$AAB" || (echo "Signed Release AAB not found" && exit 1)
+
+          cp "$APK" release/WebAngel-SEO-Analyzer-1.0.0-release.apk
+          cp "$AAB" release/WebAngel-SEO-Analyzer-1.0.0-release.aab
+
+      - name: Verify APK signature
+        run: |
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify \
+            --verbose \
+            --print-certs \
+            release/WebAngel-SEO-Analyzer-1.0.0-release.apk
+
+      - name: Verify AAB signature
+        run: |
+          jarsigner -verify -strict \
+            release/WebAngel-SEO-Analyzer-1.0.0-release.aab
+
+      - name: Create SHA256 checksums
+        run: |
+          cd release
+          sha256sum \
+            WebAngel-SEO-Analyzer-1.0.0-release.apk \
+            WebAngel-SEO-Analyzer-1.0.0-release.aab \
+            > SHA256SUMS.txt
+
+      - name: Upload signed release
+        uses: actions/upload-artifact@v4
+        with:
+          name: webangel-seo-analyzer-1.0.0-signed-release-v3
+          path: |
+            release/WebAngel-SEO-Analyzer-1.0.0-release.apk
+            release/WebAngel-SEO-Analyzer-1.0.0-release.aab
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30

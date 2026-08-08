@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">وب‌آنجل SEO Analyzer</string>
+    <string name="offline_title">اتصال اینترنت در دسترس نیست</string>
+    <string name="offline_body">برای اجرای تحلیل‌ها و ابزارهای سئو، اتصال اینترنت لازم است.</string>
+    <string name="retry">تلاش دوباره</string>
+</resources>

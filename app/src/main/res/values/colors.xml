@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="wa_navy">#071B33</color>
+    <color name="wa_blue">#0B67D1</color>
+    <color name="wa_orange">#FF7618</color>
+    <color name="wa_surface">#FFFFFF</color>
+    <color name="wa_text">#10243D</color>
+    <color name="wa_muted">#60758A</color>
+    <color name="wa_line">#E4EBF3</color>
+</resources>

@@ -1,0 +1,9 @@
+WebAngel WebsiteChecker Android — GitHub Upload
+
+1) Extract this ZIP on your computer.
+2) Open the extracted folder.
+3) Select ALL files/folders inside it (including .github) — do not upload the outer folder itself.
+4) In GitHub repo: Add file > Upload files.
+5) Drag all selected items into the upload area.
+6) Commit directly to main.
+7) The Build Android APK workflow will run automatically on push to main.
